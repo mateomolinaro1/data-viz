@@ -35,7 +35,5 @@ class Config:
         with open(self.ROOT_DIR / "configs" / "run_pipeline_config.json" , "r") as f:
             config: dict = json.load(f)
 
-            # AWS
-            if config.get("AWS").get("PROFILE") is not None:
-                self.aws_profile = config.get("AWS").get("PROFILE")
+
 

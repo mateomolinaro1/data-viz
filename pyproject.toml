@@ -1,9 +1,32 @@
 [project]
 name = "dataviz"
 version = "0.1.0"
-description = "Add your description here"
-requires-python = ">=3.13"
-dependencies = []
+description = "Financial data visualization and WRDS data pipeline"
+readme = "README.md"
+requires-python = ">=3.12,<3.13"
+
+dependencies = [
+    "numpy>=1.26,<2.0",
+    "pandas>=2.1,<2.2",
+    "matplotlib>=3.8,<4.0",
+    "sqlalchemy>=1.4,<2.0",
+    "wrds==3.1.6",
+    "python-dotenv>=1.0",
+    "fastparquet>=2025.12.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "ipykernel",
+    "jupyter",
+    "black",
+    "ruff",
+    "pytest"
+]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
 
 [tool.setuptools]
 package-dir = {"" = "src"}
