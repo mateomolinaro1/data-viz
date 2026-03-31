@@ -1,3 +1,14 @@
 {
-  "TOTO": "TOTO"
+  "AWS": {
+    "BUCKET_NAME": "data-vizu",
+    "AWS_DEFAULT_REGION": "eu-north-1",
+    "OUTPUT_FORMAT": "json"
+  },
+
+  "PATHS": {
+    "S3_FUNDA_PATH": "data/wrds_funda_gross_query.parquet",
+    "S3_MKT_PATH": "data/wrds_gross_query.parquet",
+    "S3_PATH": "s3://data-vizu"
+  }
+
 }
