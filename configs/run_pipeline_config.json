@@ -9,6 +9,27 @@
     "S3_FUNDA_PATH": "data/wrds_funda_gross_query.parquet",
     "S3_MKT_PATH": "data/wrds_gross_query.parquet",
     "S3_PATH": "s3://data-vizu"
+  },
+
+  "DATA": {
+    "NETWORK": {
+      "WINDOW_CORR_MATRIX": 1260,
+      "MOMENTUM_MONTHS": 12,
+      "LAYOUT_THRESHOLD_REF": 0.75,
+      "LAYOUT_SAMPLE_STEP": 21,
+      "LAYOUT_MIN_PERIODS": 60,
+      "LAYOUT_SEED": 42,
+      "LABEL_MARKET_CAP_QUANTILE": 0.0,
+      "MIN_EDGE_WIDTH": 0.25,
+      "MAX_EDGE_WIDTH": 3,
+      "MIN_NODE_OPACITY_FALLBACK": 0.05,
+      "DEFAULT_NODE_COLOR": "#999999",
+      "POSITIVE_EDGE_COLOR": "#d62728",
+      "NEGATIVE_EDGE_COLOR": "#2ca02c",
+      "NODE_SPACING": 2,
+      "COORDINATE_SCALE": 3000
+    }
   }
+
 
 }

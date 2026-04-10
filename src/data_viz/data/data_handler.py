@@ -99,6 +99,7 @@ class DataHandler:
     def fetch_wrds_historical_universe(self,
                                        wrds_request:str,
                                        starting_date:str,
+                                       ending_date:str,
                                        date_cols:List[str],
                                        saving_config:dict,
                                        save_tickers_across_dates:bool=True,
@@ -140,7 +141,7 @@ class DataHandler:
             self.connect_wrds()
 
         # Query WRDS database
-        wrds_request = wrds_request.format(starting_date=starting_date)
+        wrds_request = wrds_request.format(starting_date=starting_date, ending_date=ending_date)
         self.wrds_gross_query = self.wrds_db.raw_sql(sql=wrds_request,
                                                      date_cols=date_cols)
 
