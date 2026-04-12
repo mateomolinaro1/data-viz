@@ -11,6 +11,7 @@ from src.data_viz.components.heatmap import build_correlation_heatmap, build_ret
 from src.data_viz.components.treemap import build_treemap
 from src.data_viz.components.network import build_network_html
 from src.data_viz.components.galaxy import build_galaxy_html
+from src.data_viz.components.bubble import build_bubble_html
 
 ROOT = Path(__file__).parent
 mkt_data   = pd.read_parquet(ROOT / "data" / "wrds_gross_query.parquet")
@@ -74,6 +75,7 @@ app.layout = html.Div([
             dcc.Tab(label="Treemap",      value="treemap", style=TAB_STYLE, selected_style=TAB_SELECTED),
             dcc.Tab(label="Network",      value="network", style=TAB_STYLE, selected_style=TAB_SELECTED),
             dcc.Tab(label="Galaxie",      value="galaxy",  style=TAB_STYLE, selected_style=TAB_SELECTED),
+            dcc.Tab(label="Bubble chart",  value="bubble",  style=TAB_STYLE, selected_style=TAB_SELECTED),
         ]),
 
         html.Div(id="tab-content", style={
@@ -121,6 +123,16 @@ def render_tab(tab):
                 html.Div([html.Button("Générer", id="btn-network", n_clicks=0, style={"background":C["accent"],"color":"white","border":"none","borderRadius":"8px","padding":"10px 22px","fontSize":"13px","fontWeight":"600","cursor":"pointer","marginTop":"20px"})]),
             ], style={"display":"flex","gap":"20px","flexWrap":"wrap","alignItems":"flex-start","marginBottom":"20px"}),
             dcc.Loading(type="circle", color=C["accent"], children=html.Div(id="network-container", style={"height":"650px"})),
+        ])
+
+    elif tab == "bubble":
+        return html.Div([
+            html.Div([
+                html.Div([lbl("Période"), dcc.DatePickerRange(id="bub-date-range", min_date_allowed=DATE_MIN, max_date_allowed=DATE_MAX, start_date="2020-01-01", end_date=DATE_MAX, display_format="YYYY-MM-DD")], style={"flex":"1","minWidth":"280px"}),
+                html.Div([lbl("Nombre d'actions"), dcc.Slider(id="bub-top-n", min=10, max=30, step=5, value=20, marks={i:{"label":str(i),"style":{"color":C["muted"]}} for i in [10,15,20,25,30]}, tooltip={"placement":"bottom","always_visible":True})], style={"flex":"2","minWidth":"240px"}),
+                html.Div([html.Button("Générer", id="btn-bubble", n_clicks=0, style={"background":C["accent"],"color":"white","border":"none","borderRadius":"8px","padding":"10px 22px","fontSize":"13px","fontWeight":"600","cursor":"pointer","marginTop":"20px"})]),
+            ], style={"display":"flex","gap":"20px","flexWrap":"wrap","alignItems":"flex-start","marginBottom":"20px"}),
+            dcc.Loading(type="circle", color=C["accent"], children=html.Div(id="bubble-container", style={"height":"520px"})),
         ])
 
     elif tab == "galaxy":
@@ -184,6 +196,21 @@ def update_galaxy(_, start, end, top_n):
         srcDoc=build_galaxy_html(mkt_data=mkt_data, funda_data=funda_data, date_start=start, date_end=end, top_n=top_n),
         sandbox="allow-scripts",
         style={"width":"100%","height":"680px","border":"none","borderRadius":"8px","background":"#000008"},
+    )
+
+
+@app.callback(
+    Output("bubble-container", "children"),
+    Input("btn-bubble", "n_clicks"),
+    State("bub-date-range", "start_date"), State("bub-date-range", "end_date"),
+    State("bub-top-n", "value"),
+    prevent_initial_call=False,
+)
+def update_bubble(_, start, end, top_n):
+    return html.Iframe(
+        srcDoc=build_bubble_html(mkt_data=mkt_data, funda_data=funda_data, date_start=start, date_end=end, top_n=top_n),
+        sandbox="allow-scripts",
+        style={"width":"100%","height":"520px","border":"none","borderRadius":"8px","background":"#0d0d12"},
     )
 
 
