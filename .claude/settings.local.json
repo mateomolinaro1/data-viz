@@ -1,0 +1,16 @@
+{
+  "permissions": {
+    "allow": [
+      "Read(//mnt/c/Users/mateo/Code/ENSAEDataVisualization/**)",
+      "Bash(python -c ':*)",
+      "Bash(python:*)",
+      "Bash(C:/Users/mateo/Code/ENSAEDataVisualization/DataViz/.venv/Scripts/pip.exe list:*)",
+      "Bash(C:/Users/mateo/Code/ENSAEDataVisualization/DataViz/.venv/Scripts/pip.exe install:*)",
+      "Bash(C:/Users/mateo/Code/ENSAEDataVisualization/DataViz/.venv/Scripts/python.exe -c ':*)",
+      "Bash(cmd:*)",
+      "Bash(powershell:*)",
+      "Bash(where python:*)",
+      "Bash(uv run:*)"
+    ]
+  }
+}

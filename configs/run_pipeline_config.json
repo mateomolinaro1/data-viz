@@ -8,7 +8,8 @@
   "PATHS": {
     "S3_FUNDA_PATH": "data/wrds_funda_gross_query.parquet",
     "S3_MKT_PATH": "data/wrds_gross_query.parquet",
-    "S3_PATH": "s3://data-vizu"
+    "S3_PATH": "s3://data-vizu",
+    "S3_TBILL_PATH": null
   },
 
   "DATA": {

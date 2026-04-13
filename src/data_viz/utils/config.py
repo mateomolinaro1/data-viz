@@ -30,6 +30,7 @@ class Config:
         self.funda_path: str | None | Path = None
         self.mkt_path: str | None | Path = None
         self.s3_path: str | None | Path = None
+        self.tbill_path: str | None = None  # DGS3MO (3-month T-bill), FRED format
 
         # Data
         # Network
@@ -77,6 +78,9 @@ class Config:
 
             if config.get("PATHS").get("S3_PATH") is not None:
                 self.s3_path = config.get("PATHS").get("S3_PATH")
+
+            if config.get("PATHS").get("S3_TBILL_PATH") is not None:
+                self.tbill_path = config.get("PATHS").get("S3_TBILL_PATH")
 
             # Data
             if config.get("DATA").get("NETWORK").get("WINDOW_CORR_MATRIX") is not None:

@@ -11,6 +11,11 @@ from dotenv import load_dotenv
 from data_viz.data.data import DataManager
 from data_viz.network.network import NetworkBuilder
 from data_viz.utils.config import Config
+from data_viz.dashboard.market_overview import MarketOverviewTab
+from data_viz.data.factor_engine import FactorEngine
+from data_viz.data.regime_engine import RegimeEngine
+from data_viz.dashboard.factor_dashboard import FactorDashboardTab
+from data_viz.dashboard.intro_tab import build_intro_layout
 
 
 # ============================================================
@@ -527,43 +532,16 @@ def default_edge_panel():
 # APP
 # ============================================================
 
-def build_dynamic_network_app(data_manager: DataManager, configu: Config) -> Dash:
-    appli = Dash(__name__)
-    builder = NetworkBuilder(config=configu)
-
-    if data_manager.dates is None or len(data_manager.dates) == 0:
-        raise ValueError("data_manager.dates is empty or not built.")
-    if data_manager.reference_layout is None:
-        raise ValueError("reference_layout is not built.")
-
-    default_date_idx = len(data_manager.dates) - 1
-    default_threshold = float(configu.layout_threshold_ref)
-    min_periods = configu.layout_min_periods
-
-    initial = build_snapshot_bundle(
-        data_manager=data_manager,
-        builder=builder,
-        date_idx=default_date_idx,
-        threshold=default_threshold,
-        min_periods=min_periods,
-    )
-
-    base_stylesheet = builder.get_base_stylesheet()
-    date_marks = build_date_slider_marks(data_manager.dates, n_marks=8)
-
-    appli.layout = html.Div(
+def _build_network_tab_content(
+    initial: dict,
+    data_manager: DataManager,
+    date_marks: dict,
+    default_threshold: float,
+    base_stylesheet,
+) -> html.Div:
+    """Return the inner layout for the Correlation Network tab (no stores/interval)."""
+    return html.Div(
         [
-            # --- stores ---
-            dcc.Store(id="graph-highlight-state", data={"mode": "none", "value": None}),
-
-            # --- interval drives the animation clock ---
-            dcc.Interval(
-                id="animation-interval",
-                interval=800,   # ms between steps — increase if snapshots are slow
-                n_intervals=0,
-                disabled=True,  # starts paused
-            ),
-
             html.H3("Correlation Network"),
             html.Div(
                 id="current-date-label",
@@ -616,7 +594,7 @@ def build_dynamic_network_app(data_manager: DataManager, configu: Config) -> Das
                                 min=0,
                                 max=len(data_manager.dates) - 1,
                                 step=1,
-                                value=default_date_idx,
+                                value=len(data_manager.dates) - 1,
                                 marks=date_marks,
                                 tooltip={"placement": "bottom", "always_visible": False},
                             ),
@@ -686,6 +664,95 @@ def build_dynamic_network_app(data_manager: DataManager, configu: Config) -> Das
             html.Div(
                 id="ranking-table-container",
                 children=build_ranking_table(initial["ranking_df"]),
+            ),
+        ],
+        style={"padding": "10px"},
+    )
+
+
+def build_dynamic_network_app(data_manager: DataManager, configu: Config) -> Dash:
+    appli = Dash(__name__)
+    builder = NetworkBuilder(config=configu)
+
+    if data_manager.dates is None or len(data_manager.dates) == 0:
+        raise ValueError("data_manager.dates is empty or not built.")
+    if data_manager.reference_layout is None:
+        raise ValueError("reference_layout is not built.")
+
+    default_date_idx = len(data_manager.dates) - 1
+    default_threshold = float(configu.layout_threshold_ref)
+    min_periods = configu.layout_min_periods
+
+    initial = build_snapshot_bundle(
+        data_manager=data_manager,
+        builder=builder,
+        date_idx=default_date_idx,
+        threshold=default_threshold,
+        min_periods=min_periods,
+    )
+
+    base_stylesheet = builder.get_base_stylesheet()
+    date_marks = build_date_slider_marks(data_manager.dates, n_marks=8)
+
+    vol_df = data_manager.get_sector_vol_heatmap_data()
+
+    factor_engine = FactorEngine(data_manager)
+    factor_engine.build()
+
+    regime_engine = RegimeEngine(data_manager)
+    regime_engine.build()
+
+    overview_tab = MarketOverviewTab(data_manager, configu, vol_df=vol_df,
+                                     regime_engine=regime_engine)
+    overview_tab.precompute()
+
+    factor_tab = FactorDashboardTab(factor_engine, regime_engine=regime_engine)
+
+    appli.layout = html.Div(
+        [
+            # Stores and interval live outside tabs so they persist across tab switches
+            dcc.Store(id="graph-highlight-state", data={"mode": "none", "value": None}),
+            dcc.Interval(
+                id="animation-interval",
+                interval=800,
+                n_intervals=0,
+                disabled=True,
+            ),
+
+            dcc.Tabs(
+                id="main-tabs",
+                value="tab-intro",
+                children=[
+                    dcc.Tab(
+                        label="Introduction",
+                        value="tab-intro",
+                        children=[build_intro_layout()],
+                    ),
+                    dcc.Tab(
+                        label="Market Overview",
+                        value="tab-overview",
+                        children=[overview_tab.build_layout()],
+                    ),
+                    dcc.Tab(
+                        label="Factor Dashboard",
+                        value="tab-factors",
+                        children=[factor_tab.build_layout()],
+                    ),
+                    dcc.Tab(
+                        label="Correlation Network",
+                        value="tab-network",
+                        children=[
+                            _build_network_tab_content(
+                                initial=initial,
+                                data_manager=data_manager,
+                                date_marks=date_marks,
+                                default_threshold=default_threshold,
+                                base_stylesheet=base_stylesheet,
+                            )
+                        ],
+                    ),
+                ],
+                style={"marginBottom": "4px"},
             ),
         ],
         style={"padding": "10px"},
@@ -941,6 +1008,16 @@ def build_dynamic_network_app(data_manager: DataManager, configu: Config) -> Das
             ),
             build_neighbors_table(neighbors_df),
         ]
+
+    # --------------------------------------------------------
+    # Market overview callbacks (includes volatility heatmap)
+    # --------------------------------------------------------
+    overview_tab.register_callbacks(appli)
+
+    # --------------------------------------------------------
+    # Factor dashboard callbacks
+    # --------------------------------------------------------
+    factor_tab.register_callbacks(appli)
 
     return appli
 

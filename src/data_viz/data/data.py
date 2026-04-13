@@ -48,6 +48,16 @@ class DataManager:
         self._graph_summary_cache: dict[tuple[pd.Timestamp, float, int | None], dict[str, float | int]] = {}
         self._node_ranking_cache: dict[tuple[pd.Timestamp, float, int | None], pd.DataFrame] = {}
 
+        # Pre-computed time series (populated by build_graph_summary_timeseries)
+        self.graph_summary_timeseries: pd.DataFrame | None = None
+
+        # Slim fundamental data kept for FactorEngine (populated by _free_memory)
+        self.funda_factors: pd.DataFrame = pd.DataFrame()
+
+        # Monthly T-bill returns (annualized % → monthly rate, from DGS3MO)
+        # None if path not configured; FactorEngine falls back to 0 % rf.
+        self.tbill_monthly: pd.Series | None = None
+
     def load_data(self) -> None:
         """
         Load the data from the source and process it to fill the attributes.
@@ -62,6 +72,7 @@ class DataManager:
         self._build_universe()
         self._build_return_pivot()
         self._build_node_features()
+        self._load_tbill_data()
 
         self._free_memory()
 
@@ -212,10 +223,50 @@ class DataManager:
         )
         logger.info("Return pivot table built with shape: %s", self.ret_pivot.shape)
 
+    def _load_tbill_data(self) -> None:
+        """
+        Load and convert DGS3MO (3-month T-bill) data to a monthly return series.
+        Expected format: parquet/CSV with columns 'date'+'rate' (or FRED 'DATE'+'DGS3MO').
+        Rate should be in annualised % (e.g. 5.25 for 5.25 %).
+        Missing values represented as NaN or '.' are forward-filled.
+        """
+        if not self.config.tbill_path:
+            logger.info("T-bill path not configured; using 0 %% risk-free rate.")
+            return
+        try:
+            df = self.aws.s3.load(key=self.config.tbill_path)
+            # Normalise FRED column names
+            df = df.rename(columns={"DATE": "date", "DGS3MO": "rate"})
+            df["date"] = pd.to_datetime(df["date"], errors="coerce")
+            df["rate"] = pd.to_numeric(df["rate"], errors="coerce")
+            df = df.dropna(subset=["date"]).sort_values("date").set_index("date")
+            # Resample to month-end, forward-fill gaps (e.g. weekends/holidays)
+            monthly = df["rate"].resample("M").last().ffill()
+            # Convert annualised % → monthly decimal return
+            self.tbill_monthly = (1 + monthly / 100) ** (1 / 12) - 1
+            logger.info("T-bill data loaded: %d monthly observations.", len(self.tbill_monthly))
+        except Exception as exc:
+            logger.warning("T-bill data load failed (%s); using 0 %% rf.", exc)
+
     def _free_memory(self) -> None:
         """
         Free memory by dropping large intermediate dataframes that are no longer needed.
+        A slim copy of funda_data is kept for the FactorEngine.
         """
+        _FACTOR_KEEP_COLS = [
+            "permno", "public_date",
+            "bm", "roe", "npm", "cfm", "fcf_ocf", "de_ratio", "roa", "gpm",
+        ]
+        if self.funda_data is not None:
+            keep = [c for c in _FACTOR_KEEP_COLS if c in self.funda_data.columns]
+            self.funda_factors: pd.DataFrame = (
+                self.funda_data[keep]
+                .dropna(subset=["permno", "public_date"])
+                .sort_values(["permno", "public_date"])
+                .reset_index(drop=True)
+            )
+        else:
+            self.funda_factors = pd.DataFrame()
         self.mkt_data = None
         self.funda_data = None
 
@@ -982,6 +1033,215 @@ class DataManager:
         date = pd.Timestamp(date)
         threshold = round(float(threshold), 6)
         return date, threshold, min_periods
+
+    def get_period_returns(
+        self,
+        date: pd.Timestamp,
+        n_days: int,
+    ) -> pd.Series:
+        """
+        Compute the cumulative return for each stock over the past n_days
+        trading days ending at date (inclusive).
+
+        Uses ret_pivot, which stores daily returns indexed by date with
+        permno as columns.  NaN returns within the window are skipped
+        (equivalent to 0-return days for that stock).
+
+        Parameters
+        ----------
+        date : pd.Timestamp
+            End date of the period.  Snapped to the nearest available date
+            in ret_pivot if not found exactly.
+        n_days : int
+            Number of trading days in the look-back window (e.g. 1, 5, 21, 252).
+
+        Returns
+        -------
+        pd.Series
+            Index: permno (Int64).  Values: cumulative return as a decimal
+            (e.g. 0.05 = +5 %).  NaN for stocks with no data in window.
+        """
+        if self.ret_pivot is None:
+            raise ValueError("ret_pivot is not built.")
+
+        date = pd.Timestamp(date)
+
+        # Snap to nearest available date
+        if date not in self.ret_pivot.index:
+            pos = self.ret_pivot.index.searchsorted(date)
+            pos = min(pos, len(self.ret_pivot.index) - 1)
+            date = self.ret_pivot.index[pos]
+
+        window = self.ret_pivot.loc[:date].tail(n_days)
+        if window.empty:
+            return pd.Series(dtype=float)
+
+        # (1 + r1)(1 + r2)…(1 + rN) − 1, skipping NaN days
+        cum_ret = (1 + window.fillna(0)).prod() - 1
+
+        # Set to NaN stocks that had NO valid data at all in the window
+        valid_counts = window.notna().sum()
+        cum_ret[valid_counts == 0] = np.nan
+
+        return cum_ret
+
+    def get_universe_snapshot(self, date: pd.Timestamp) -> pd.DataFrame:
+        """
+        Return all stocks present in the universe at a given date.
+
+        Uses network_data (no momentum filter) so all stocks are included
+        regardless of how much return history they have.
+
+        Returns
+        -------
+        pd.DataFrame
+            Columns: permno, ticker, gics_sector, market_cap
+            Sorted by market_cap descending.
+        """
+        if self.network_data is None:
+            raise ValueError("network_data is not prepared.")
+
+        date = pd.Timestamp(date)
+        df = (
+            self.network_data
+            .loc[self.network_data["date"] == date,
+                 ["permno", "ticker", "gics_sector", "market_cap"]]
+            .dropna(subset=["gics_sector", "market_cap"])
+            .sort_values("market_cap", ascending=False)
+            .reset_index(drop=True)
+        )
+        return df
+
+    def get_sector_snapshot(self, date: pd.Timestamp) -> pd.DataFrame:
+        """
+        Return sector-level aggregated data at a given date.
+
+        Uses network_data (all stocks, no momentum filter) so early dates
+        with insufficient momentum history are still fully represented.
+
+        Returns
+        -------
+        pd.DataFrame
+            Columns: sector, total_mcap, n_stocks, avg_mcap
+            Sorted by total_mcap descending.
+        """
+        if self.network_data is None:
+            raise ValueError("network_data is not prepared.")
+
+        date = pd.Timestamp(date)
+        df = self.network_data.loc[self.network_data["date"] == date].copy()
+
+        if df.empty:
+            return pd.DataFrame(columns=["sector", "total_mcap", "n_stocks", "avg_mcap"])
+
+        snapshot = (
+            df.dropna(subset=["gics_sector", "market_cap"])
+            .groupby("gics_sector", as_index=False)
+            .agg(
+                total_mcap=("market_cap", "sum"),
+                n_stocks=("permno", "count"),
+                avg_mcap=("market_cap", "mean"),
+            )
+            .rename(columns={"gics_sector": "sector"})
+            .sort_values("total_mcap", ascending=False)
+            .reset_index(drop=True)
+        )
+        return snapshot
+
+    def build_graph_summary_timeseries(
+        self,
+        monthly_dates: list[pd.Timestamp],
+        threshold: float,
+        min_periods: int | None = None,
+    ) -> None:
+        """
+        Pre-compute graph summary statistics for each supplied monthly date.
+
+        Results are stored in self.graph_summary_timeseries as a DataFrame
+        indexed by date with one column per statistic:
+            n_nodes, n_edges, density, avg_degree, avg_weighted_degree,
+            total_edge_weight, n_components, largest_component_size
+
+        Parameters
+        ----------
+        monthly_dates : list[pd.Timestamp]
+            Dates at which to evaluate the graph (typically one per month).
+        threshold : float
+            Correlation threshold used to build the graph.
+        min_periods : int | None
+            Minimum observations required inside the rolling window.
+        """
+        logger.info(
+            "Building graph summary timeseries for %d dates (threshold=%.2f)…",
+            len(monthly_dates), threshold,
+        )
+        records: list[dict] = []
+
+        for i, date in enumerate(monthly_dates):
+            if i % 20 == 0:
+                logger.info("  …date %d / %d  (%s)", i, len(monthly_dates), date)
+            try:
+                stats = self.get_graph_summary_stats(
+                    date=date,
+                    threshold=threshold,
+                    min_periods=min_periods,
+                )
+                records.append({"date": date, **stats})
+            except Exception as exc:
+                logger.warning("Skipping %s: %s", date, exc)
+
+        if records:
+            self.graph_summary_timeseries = (
+                pd.DataFrame(records)
+                .set_index("date")
+                .sort_index()
+            )
+        else:
+            self.graph_summary_timeseries = pd.DataFrame()
+
+        logger.info(
+            "Graph summary timeseries ready: shape %s",
+            self.graph_summary_timeseries.shape,
+        )
+
+    def get_sector_vol_heatmap_data(self) -> pd.DataFrame:
+        """
+        Compute monthly realized volatility (annualized) per GICS sector,
+        using an equal-weighted sector portfolio.
+
+        Daily returns are first averaged across all stocks in each sector
+        (equal-weighted portfolio), then monthly realized vol is computed
+        as the standard deviation of daily returns within each calendar month,
+        annualized by √252.
+
+        Returns
+        -------
+        pd.DataFrame
+            Index  : month-end timestamps (DatetimeIndex, freq="ME")
+            Columns: GICS sector names
+            Values : annualized realized vol (float, e.g. 0.25 = 25 %)
+        """
+        if self.network_data is None:
+            raise ValueError("network_data is not prepared.")
+
+        df = self.network_data[["date", "ret", "gics_sector"]].dropna(
+            subset=["date", "ret", "gics_sector"]
+        )
+
+        # Equal-weighted daily sector return: mean across all stocks in sector
+        sector_daily = (
+            df.groupby(["date", "gics_sector"])["ret"]
+            .mean()
+            .unstack("gics_sector")
+            .sort_index()
+        )
+        sector_daily.index = pd.DatetimeIndex(sector_daily.index)
+        sector_daily.columns.name = None
+
+        # Monthly std of daily returns, annualized by √252
+        monthly_vol = sector_daily.resample("M").std() * np.sqrt(252)
+
+        return monthly_vol
 
     def clear_graph_caches(self) -> None:
         """
