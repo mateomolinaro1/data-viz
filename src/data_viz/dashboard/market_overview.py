@@ -750,7 +750,7 @@ def build_regime_monitor_figure(
                 x=dates + dates[::-1],
                 y=bands["ret_p90"].tolist() + bands["ret_p10"].tolist()[::-1],
                 fill="toself", fillcolor="rgba(120,120,120,0.12)",
-                line=dict(width=0), name="Sector range (10–90%)", showlegend=True,
+                line=dict(width=0), name="Sector range (min-max)", showlegend=True,
                 hoverinfo="skip", legendgroup="bands",
             ), row=1, col=1)
 
@@ -778,7 +778,7 @@ def build_regime_monitor_figure(
                 x=dates + dates[::-1],
                 y=bands["vol_p90"].tolist() + bands["vol_p10"].tolist()[::-1],
                 fill="toself", fillcolor="rgba(120,120,120,0.12)",
-                line=dict(width=0), name="Sector range (10–90%)", showlegend=False,
+                line=dict(width=0), name="Sector range (min-max)", showlegend=False,
                 hoverinfo="skip", legendgroup="bands",
             ), row=2, col=1)
 
