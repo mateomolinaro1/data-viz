@@ -1,5 +1,4 @@
 from configs.config_get_funda_data_first_time  import *
-from data_viz.data.data_handler import DataHandler
 from dotenv import load_dotenv
 load_dotenv()
 import os
@@ -18,7 +17,7 @@ logging.basicConfig(
 wrds_db = wrds.Connection(wrds_username=os.getenv("WRDS_USERNAME"),
                           wrds_password=os.getenv("WRDS_PASSWORD"))
 
-wrds_request = WRDS_REQUEST.format(starting_date=STARTING_DATE)
+wrds_request = WRDS_REQUEST.format(starting_date=STARTING_DATE, ending_date=ENDING_DATE)
 wrds_gross_query = wrds_db.raw_sql(sql=wrds_request,
                                    date_cols=['adate','qdate','public_date'])
 wrds_gross_query.to_parquet(SAVING_CONFIG_UNIVERSE['gross_query']['path'], index=False)

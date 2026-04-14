@@ -6,7 +6,8 @@ DATA_PATH = PROJECT_ROOT / "data"
 
 # At least, the query must retrieve the following columns:
 # ['ticker','exchcd','cusip','ncusip','comnam','permno','permco','namedt','nameendt','date']
-STARTING_DATE = '01/01/2020' # of the wrds query YYYY-MM-DD
+STARTING_DATE = '1970-01-01' # of the wrds query YYYY-MM-DD
+ENDING_DATE = '2019-12-31'
 WRDS_REQUEST = """
 WITH base AS (
     SELECT
@@ -23,6 +24,7 @@ WITH base AS (
     WHERE a.exchcd IN (1, 2, 3)          -- NYSE, AMEX, NASDAQ
       AND a.shrcd IN (10, 11)            -- Common shares only
       AND b.date >= '{starting_date}'
+      AND b.date <= '{ending_date}'      -- optional: set an ending date for the query
       AND b.prc IS NOT NULL              -- ensure valid price
       AND b.vol IS NOT NULL              -- ensure valid volume
       AND b.prc != 0                     -- avoid zero-price issues

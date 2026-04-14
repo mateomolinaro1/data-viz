@@ -21,6 +21,7 @@ dh = DataHandler(data_path=DATA_PATH,
 dh.connect_wrds()
 dh.fetch_wrds_historical_universe(wrds_request=WRDS_REQUEST,
                                   starting_date=STARTING_DATE,
+                                  ending_date=ENDING_DATE,
                                   date_cols=DATE_COLS,
                                   saving_config=SAVING_CONFIG_UNIVERSE,
                                   save_tickers_across_dates=True,
@@ -31,3 +32,10 @@ dh.get_wrds_returns()
 dh.logout_wrds()
 logging.info("Data fetching and processing completed.")
 
+import pandas as pd
+a = pd.read_parquet(r"C:\Users\mateo\Code\ENSAEDataVisualization\DataViz\data\wrds_gross_query.parquet")
+b = pd.read_parquet(r"C:\Users\mateo\Code\ENSAEDataVisualization\DataViz\data\wrds_gross_query1.parquet")
+c = pd.concat([a,b], axis=0)
+del a
+del b
+c.to_parquet(r"C:\Users\mateo\Code\ENSAEDataVisualization\DataViz\data\wrds_gross_query.parquet")
