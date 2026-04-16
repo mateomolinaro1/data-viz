@@ -209,6 +209,7 @@ def build_perf_datatable(perf_df: pd.DataFrame) -> dash_table.DataTable | html.D
     columns = [{"name": c, "id": c} for c in display.columns]
 
     return dash_table.DataTable(
+        id="fct-perf-datatable",
         data=display.to_dict("records"),
         columns=columns,
         sort_action="native",
@@ -386,6 +387,9 @@ def build_stock_table(ranked: pd.DataFrame, factor: str) -> dash_table.DataTable
 # Section A — annual grouped bar chart
 # ---------------------------------------------------------------
 
+_BENCHMARKS = {"ew", "cw", "tbill"}
+
+
 def build_annual_bar_figure(df: pd.DataFrame, metric: str = "ann_ret") -> go.Figure:
     if df.empty:
         return go.Figure()
@@ -396,13 +400,27 @@ def build_annual_bar_figure(df: pd.DataFrame, metric: str = "ann_ret") -> go.Fig
     hover_fmt  = "+.1%" if metric == "ann_ret" else (".1%" if metric == "ann_vol" else ".2f")
     y_title    = {"ann_ret": "Ann. Return", "ann_vol": "Ann. Vol", "sharpe": "Ann. Sharpe"}.get(metric, metric)
 
+    lower_is_better = metric == "ann_vol"
+    factor_cols = [c for c in df.columns if c not in _BENCHMARKS]
+
+    best_by_year: dict[str, str] = {}
+    for ts in df.index:
+        year = str(ts.year)
+        vals = {c: df.loc[ts, c] for c in factor_cols if pd.notna(df.loc[ts, c])}
+        if vals:
+            best_by_year[year] = min(vals, key=vals.get) if lower_is_better else max(vals, key=vals.get)
+
     fig = go.Figure()
     for col in df.columns:
+        line_colors = ["red" if best_by_year.get(y) == col else "rgba(0,0,0,0)" for y in years]
+        line_widths = [2 if best_by_year.get(y) == col else 0 for y in years]
         fig.add_trace(go.Bar(
             name=_FACTOR_LABELS.get(col, col),
             x=years,
             y=df[col].tolist(),
             marker_color=_FACTOR_COLORS.get(col, "#999"),
+            marker_line_color=line_colors,
+            marker_line_width=line_widths,
             hovertemplate=(
                 f"<b>{_FACTOR_LABELS.get(col, col)}</b><br>"
                 f"%{{x}}<br>%{{y:{hover_fmt}}}<extra></extra>"
@@ -447,14 +465,27 @@ def build_regime_bar_figure(df: pd.DataFrame, metric: str = "ann_ret") -> go.Fig
     if "Normal (mid)" in df.columns:
         regime_cols = regime_cols + ["Normal (mid)"]
 
+    lower_is_better = metric == "ann_vol"
+    factor_strats = [s for s in df.index if s not in _BENCHMARKS]
+
+    best_by_regime: dict[str, str] = {}
+    for r in regime_cols:
+        vals = {s: float(df.loc[s, r]) for s in factor_strats if s in df.index and r in df.columns and pd.notna(df.loc[s, r])}
+        if vals:
+            best_by_regime[r] = min(vals, key=vals.get) if lower_is_better else max(vals, key=vals.get)
+
     fig = go.Figure()
     for strat in df.index:
         vals = [float(df.loc[strat, r]) if r in df.columns else np.nan for r in regime_cols]
+        line_colors = ["red" if best_by_regime.get(r) == strat else "rgba(0,0,0,0)" for r in regime_cols]
+        line_widths = [2 if best_by_regime.get(r) == strat else 0 for r in regime_cols]
         fig.add_trace(go.Bar(
             name=_FACTOR_LABELS.get(strat, strat),
             x=regime_cols,
             y=vals,
             marker_color=_FACTOR_COLORS.get(strat, "#999"),
+            marker_line_color=line_colors,
+            marker_line_width=line_widths,
             hovertemplate=(
                 f"<b>{_FACTOR_LABELS.get(strat, strat)}</b><br>"
                 f"%{{x}}<br>%{{y:{hover_fmt}}}<extra></extra>"
@@ -594,6 +625,7 @@ class FactorDashboardTab:
 
         return html.Div(
             [
+                dcc.Store(id="fct-perf-numeric-store"),
                 html.H3("Factor Dashboard", style={"marginBottom": "6px"}),
                 html.P(
                     "Monthly-rebalanced decile factor portfolios (D10 − D1 L/S and D10 LO). "
@@ -1033,9 +1065,10 @@ class FactorDashboardTab:
         _regime_series = self.regime_engine.regime_series if self.regime_engine else None
 
         @app.callback(
-            Output("fct-cumret-chart", "figure"),
-            Output("fct-rolling-chart", "figure"),
-            Output("fct-perf-table",    "children"),
+            Output("fct-cumret-chart",       "figure"),
+            Output("fct-rolling-chart",      "figure"),
+            Output("fct-perf-table",         "children"),
+            Output("fct-perf-numeric-store", "data"),
             Input("fct-mode",           "value"),
             Input("fct-start-date",     "date"),
             Input("fct-ir-bm",          "value"),
@@ -1062,11 +1095,59 @@ class FactorDashboardTab:
                 mode, start_date, ir_benchmark=ir_bm or "ew"
             )
 
+            perf_store = perf.reset_index().to_json(orient="records")
+
             return (
                 build_cumret_figure(cumret, mode, regime_series=_regime_series),
                 build_rolling_figure(rolling, mode, window, roll_metric, regime_series=_regime_series),
                 build_perf_datatable(perf),
+                perf_store,
             )
+
+        # ---- A: highlight best row in perf table on sort ----
+        _LABEL_TO_METRIC = {v: k for k, v in _PERF_METRIC_LABELS.items()}
+        _LOWER_IS_BETTER = {"ann_vol"}
+
+        @app.callback(
+            Output("fct-perf-datatable", "style_data_conditional"),
+            Input("fct-perf-datatable",  "sort_by"),
+            State("fct-perf-numeric-store", "data"),
+            prevent_initial_call=True,
+        )
+        def highlight_best_row(sort_by, store_json):
+            base = [
+                {"if": {"filter_query": '{Strategy} contains "benchmark"'},
+                 "backgroundColor": "#f5f5f5", "fontStyle": "italic"},
+            ]
+            if not sort_by or not store_json:
+                return base
+
+            sorted_col_label = sort_by[0]["column_id"]
+            metric_key = _LABEL_TO_METRIC.get(sorted_col_label)
+            if metric_key is None:
+                return base
+
+            try:
+                records = pd.read_json(store_json, orient="records")
+            except Exception:
+                return base
+
+            if metric_key not in records.columns:
+                return base
+
+            col_vals = pd.to_numeric(records[metric_key], errors="coerce")
+            if col_vals.isna().all():
+                return base
+
+            best_idx = col_vals.idxmin() if metric_key in _LOWER_IS_BETTER else col_vals.idxmax()
+
+            strategy_col = records.columns[0]
+            best_strategy = str(records.loc[best_idx, strategy_col])
+
+            return base + [
+                {"if": {"filter_query": f'{{{strategy_col}}} = "{best_strategy}"'},
+                 "backgroundColor": "#d4f5d4", "fontWeight": "bold"},
+            ]
 
         # ---- A: annual bar chart ----
         @app.callback(
