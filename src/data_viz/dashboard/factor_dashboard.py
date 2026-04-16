@@ -209,6 +209,7 @@ def build_perf_datatable(perf_df: pd.DataFrame) -> dash_table.DataTable | html.D
     columns = [{"name": c, "id": c} for c in display.columns]
 
     return dash_table.DataTable(
+        id="fct-perf-datatable",
         data=display.to_dict("records"),
         columns=columns,
         sort_action="native",
@@ -386,6 +387,194 @@ def build_stock_table(ranked: pd.DataFrame, factor: str) -> dash_table.DataTable
 # Section A — annual grouped bar chart
 # ---------------------------------------------------------------
 
+_BENCHMARKS = {"ew", "cw", "tbill"}
+
+# ---------------------------------------------------------------
+# Section B — Factor Profile radar chart
+# ---------------------------------------------------------------
+
+_RADAR_FACTORS: list[str] = ["momentum", "low_vol", "value", "quality", "growth"]
+
+_RADAR_COLORS: dict[str, str] = {
+    "ticker1":  "#4C72B0",
+    "ticker2":  "#C44E52",
+    "sector":   "#55A868",
+    "universe": "#AAAAAA",
+}
+
+
+def _make_radar_marks(dates: list[pd.Timestamp]) -> dict[int, str]:
+    marks: dict[int, str] = {}
+    seen: set[int] = set()
+    for i, d in enumerate(dates):
+        if d.year not in seen:
+            marks[i] = str(d.year)
+            seen.add(d.year)
+    return marks
+
+
+def build_radar_figure(
+    scores_df: pd.DataFrame,
+    ticker1: str | None,
+    mode: str,
+    ticker2: str | None = None,
+) -> go.Figure:
+    """
+    Radar chart of factor percentile ranks (0–100) for one or two tickers.
+
+    NaN factors are set to 50 (universe median = neutral) and listed
+    in an annotation below the chart.
+    """
+    if scores_df.empty or not ticker1:
+        return go.Figure()
+
+    factors   = _RADAR_FACTORS
+    theta_lbl = [_FACTOR_LABELS[f] for f in factors]
+
+    # ── Percentile ranks cross-sectionnels (0–100) ──────────────────
+    pct = scores_df[factors].rank(pct=True) * 100
+    pct = pct.copy()
+    pct["ticker"]      = scores_df["ticker"].values
+    pct["gics_sector"] = scores_df["gics_sector"].values
+
+    fig = go.Figure()
+
+    # ── Univers médiane (toujours 50 par construction) ───────────────
+    fig.add_trace(go.Scatterpolar(
+        r=[50.0] * len(factors),
+        theta=theta_lbl,
+        fill="toself",
+        fillcolor="rgba(170,170,170,0.08)",
+        line=dict(color="#AAAAAA", dash="dash", width=1.5),
+        name="Universe median",
+    ))
+
+    # ── Ticker 1 ────────────────────────────────────────────────────
+    row1 = pct.loc[pct["ticker"] == ticker1]
+    if row1.empty:
+        return fig
+
+    nan_idx1: set[int] = set()
+    missing1: list[str] = []
+    vals1: list[float] = []
+    for i, f in enumerate(factors):
+        v = row1[f].iloc[0]
+        if pd.isna(v):
+            nan_idx1.add(i)
+            missing1.append(_FACTOR_LABELS[f])
+            vals1.append(50.0)
+        else:
+            vals1.append(float(v))
+    text1 = ["n/a" if i in nan_idx1 else str(int(round(vals1[i]))) for i in range(len(factors))]
+
+    fig.add_trace(go.Scatterpolar(
+        r=vals1,
+        theta=theta_lbl,
+        fill="toself",
+        fillcolor="rgba(76,114,176,0.25)",
+        line=dict(color=_RADAR_COLORS["ticker1"], width=2.5),
+        name=ticker1,
+        mode="lines+markers+text",
+        text=text1,
+        textposition="top center",
+        textfont=dict(size=11, color=_RADAR_COLORS["ticker1"]),
+    ))
+
+    # ── Mode vs_sector ───────────────────────────────────────────────
+    if mode == "vs_sector":
+        sector_ser = scores_df.loc[scores_df["ticker"] == ticker1, "gics_sector"]
+        if not sector_ser.empty and pd.notna(sector_ser.iloc[0]):
+            sector = sector_ser.iloc[0]
+            mask = pct["gics_sector"] == sector
+            sector_med = pct.loc[mask, factors].median()
+            nan_idx_s: set[int] = set()
+            sector_vals: list[float] = []
+            for i, f in enumerate(factors):
+                v = sector_med[f]
+                if pd.isna(v):
+                    nan_idx_s.add(i)
+                    sector_vals.append(50.0)
+                else:
+                    sector_vals.append(float(v))
+            text_s = ["n/a" if i in nan_idx_s else str(int(round(sector_vals[i]))) for i in range(len(factors))]
+            fig.add_trace(go.Scatterpolar(
+                r=sector_vals,
+                theta=theta_lbl,
+                fill="toself",
+                fillcolor="rgba(85,168,104,0.15)",
+                line=dict(color=_RADAR_COLORS["sector"], width=2, dash="dot"),
+                name=f"{sector} median",
+                mode="lines+markers+text",
+                text=text_s,
+                textposition="top center",
+                textfont=dict(size=11, color=_RADAR_COLORS["sector"]),
+            ))
+
+    # ── Mode vs_ticker ───────────────────────────────────────────────
+    elif mode == "vs_ticker" and ticker2:
+        row2 = pct.loc[pct["ticker"] == ticker2]
+        if not row2.empty:
+            nan_idx2: set[int] = set()
+            missing2: list[str] = []
+            vals2: list[float] = []
+            for i, f in enumerate(factors):
+                v = row2[f].iloc[0]
+                if pd.isna(v):
+                    nan_idx2.add(i)
+                    missing2.append(_FACTOR_LABELS[f])
+                    vals2.append(50.0)
+                else:
+                    vals2.append(float(v))
+            text2 = ["n/a" if i in nan_idx2 else str(int(round(vals2[i]))) for i in range(len(factors))]
+            fig.add_trace(go.Scatterpolar(
+                r=vals2,
+                theta=theta_lbl,
+                fill="toself",
+                fillcolor="rgba(196,78,82,0.20)",
+                line=dict(color=_RADAR_COLORS["ticker2"], width=2.5),
+                name=ticker2,
+                mode="lines+markers+text",
+                text=text2,
+                textposition="top center",
+                textfont=dict(size=11, color=_RADAR_COLORS["ticker2"]),
+            ))
+            if missing2:
+                fig.add_annotation(
+                    text=f"⚠ {ticker2} — missing factors set to 50th pct: {', '.join(missing2)}",
+                    xref="paper", yref="paper", x=0.5, y=-0.18,
+                    showarrow=False, font=dict(size=11, color="#888"),
+                    xanchor="center",
+                )
+
+    # ── Annotation facteurs manquants ticker1 ───────────────────────
+    if missing1:
+        fig.add_annotation(
+            text=f"⚠ {ticker1} — missing factors set to 50th pct: {', '.join(missing1)}",
+            xref="paper", yref="paper", x=0.5, y=-0.12,
+            showarrow=False, font=dict(size=11, color="#888"),
+            xanchor="center",
+        )
+
+    fig.update_layout(
+        polar=dict(
+            radialaxis=dict(
+                range=[0, 100],
+                tickvals=[25, 50, 75],
+                ticktext=["25th", "50th", "75th"],
+                tickfont=dict(size=10),
+                gridcolor="#e0e0e0",
+            ),
+            angularaxis=dict(tickfont=dict(size=12)),
+        ),
+        legend=dict(orientation="h", yanchor="bottom", y=-0.08,
+                    xanchor="center", x=0.5),
+        margin=dict(l=60, r=60, t=40, b=80),
+        height=607,
+        paper_bgcolor="white",
+    )
+    return fig
+
+
 def build_annual_bar_figure(df: pd.DataFrame, metric: str = "ann_ret") -> go.Figure:
     if df.empty:
         return go.Figure()
@@ -396,13 +585,27 @@ def build_annual_bar_figure(df: pd.DataFrame, metric: str = "ann_ret") -> go.Fig
     hover_fmt  = "+.1%" if metric == "ann_ret" else (".1%" if metric == "ann_vol" else ".2f")
     y_title    = {"ann_ret": "Ann. Return", "ann_vol": "Ann. Vol", "sharpe": "Ann. Sharpe"}.get(metric, metric)
 
+    lower_is_better = metric == "ann_vol"
+    factor_cols = [c for c in df.columns if c not in _BENCHMARKS]
+
+    best_by_year: dict[str, str] = {}
+    for ts in df.index:
+        year = str(ts.year)
+        vals = {c: df.loc[ts, c] for c in factor_cols if pd.notna(df.loc[ts, c])}
+        if vals:
+            best_by_year[year] = min(vals, key=vals.get) if lower_is_better else max(vals, key=vals.get)
+
     fig = go.Figure()
     for col in df.columns:
+        line_colors = ["red" if best_by_year.get(y) == col else "rgba(0,0,0,0)" for y in years]
+        line_widths = [2 if best_by_year.get(y) == col else 0 for y in years]
         fig.add_trace(go.Bar(
             name=_FACTOR_LABELS.get(col, col),
             x=years,
             y=df[col].tolist(),
             marker_color=_FACTOR_COLORS.get(col, "#999"),
+            marker_line_color=line_colors,
+            marker_line_width=line_widths,
             hovertemplate=(
                 f"<b>{_FACTOR_LABELS.get(col, col)}</b><br>"
                 f"%{{x}}<br>%{{y:{hover_fmt}}}<extra></extra>"
@@ -447,14 +650,27 @@ def build_regime_bar_figure(df: pd.DataFrame, metric: str = "ann_ret") -> go.Fig
     if "Normal (mid)" in df.columns:
         regime_cols = regime_cols + ["Normal (mid)"]
 
+    lower_is_better = metric == "ann_vol"
+    factor_strats = [s for s in df.index if s not in _BENCHMARKS]
+
+    best_by_regime: dict[str, str] = {}
+    for r in regime_cols:
+        vals = {s: float(df.loc[s, r]) for s in factor_strats if s in df.index and r in df.columns and pd.notna(df.loc[s, r])}
+        if vals:
+            best_by_regime[r] = min(vals, key=vals.get) if lower_is_better else max(vals, key=vals.get)
+
     fig = go.Figure()
     for strat in df.index:
         vals = [float(df.loc[strat, r]) if r in df.columns else np.nan for r in regime_cols]
+        line_colors = ["red" if best_by_regime.get(r) == strat else "rgba(0,0,0,0)" for r in regime_cols]
+        line_widths = [2 if best_by_regime.get(r) == strat else 0 for r in regime_cols]
         fig.add_trace(go.Bar(
             name=_FACTOR_LABELS.get(strat, strat),
             x=regime_cols,
             y=vals,
             marker_color=_FACTOR_COLORS.get(strat, "#999"),
+            marker_line_color=line_colors,
+            marker_line_width=line_widths,
             hovertemplate=(
                 f"<b>{_FACTOR_LABELS.get(strat, strat)}</b><br>"
                 f"%{{x}}<br>%{{y:{hover_fmt}}}<extra></extra>"
@@ -594,6 +810,7 @@ class FactorDashboardTab:
 
         return html.Div(
             [
+                dcc.Store(id="fct-perf-numeric-store"),
                 html.H3("Factor Dashboard", style={"marginBottom": "6px"}),
                 html.P(
                     "Monthly-rebalanced decile factor portfolios (D10 − D1 L/S and D10 LO). "
@@ -727,7 +944,7 @@ class FactorDashboardTab:
                           config={"displayModeBar": False},
                           style={"height": "380px", "marginBottom": "16px"}),
 
-                # Section E — Factor Performance by Regime (inline in A)
+                # Section B — Factor Performance by Regime
                 *(self._build_regime_section() if self.regime_engine is not None else []),
 
                 html.Div(style={"marginBottom": "20px"}),
@@ -735,7 +952,7 @@ class FactorDashboardTab:
                 # ================================================
                 # B — Factor Heatmaps
                 # ================================================
-                html.H4("B — Factor Heatmaps", style={"marginBottom": "8px"}),
+                html.H4("C — Factor Heatmaps", style={"marginBottom": "8px"}),
 
                 html.Div([
                     html.Div([
@@ -809,7 +1026,7 @@ class FactorDashboardTab:
                 # ================================================
                 # C — Factor–Sector Scores
                 # ================================================
-                html.H4("C — Factor–Sector Scores", style={"marginBottom": "8px"}),
+                html.H4("D — Factor–Sector Scores", style={"marginBottom": "8px"}),
                 html.P(
                     "Average factor z-score per GICS sector at the selected date.",
                     style={"color": "#666", "fontSize": "13px", "marginBottom": "8px"},
@@ -885,9 +1102,103 @@ class FactorDashboardTab:
                           style={"height": "380px", "marginBottom": "36px"}),
 
                 # ================================================
-                # D — Stock Picker
+                # D — Factor Profile — Cross-sectional View
                 # ================================================
-                html.H4("D — Stock Picker", style={"marginBottom": "8px"}),
+                html.H4("E — Factor Profile — Cross-sectional View",
+                        style={"marginBottom": "8px"}),
+                html.P(
+                    "Percentile rank (0–100) cross-sectional on the universe at the selected date. "
+                    "Score 50 = universe median. Factors with missing data are set to 50th percentile.",
+                    style={"color": "#666", "fontSize": "13px", "marginBottom": "12px"},
+                ),
+
+                # Controls row
+                html.Div([
+                    html.Div([
+                        html.Label("Mode", style={"fontWeight": "bold", "display": "block", "marginBottom": "4px"}),
+                        dcc.RadioItems(
+                            id="fct-radar-mode",
+                            options=[
+                                {"label": "Stock only",        "value": "single"},
+                                {"label": "vs Sector median",  "value": "vs_sector"},
+                                {"label": "vs Another stock",  "value": "vs_ticker"},
+                            ],
+                            value="single", inline=True,
+                            inputStyle={"marginRight": "4px"},
+                            labelStyle={"marginRight": "16px", "fontSize": "13px"},
+                        ),
+                    ]),
+                    html.Div([
+                        html.Label("Ticker 1", style={"fontWeight": "bold", "display": "block", "marginBottom": "4px"}),
+                        dcc.Dropdown(
+                            id="fct-radar-ticker1",
+                            options=[],
+                            placeholder="Search ticker…",
+                            searchable=True, clearable=False,
+                            style={"width": "160px", "fontSize": "13px"},
+                        ),
+                    ]),
+                    html.Div(
+                        id="fct-radar-ticker2-container",
+                        children=[
+                            html.Label("Ticker 2", style={"fontWeight": "bold", "display": "block", "marginBottom": "4px"}),
+                            dcc.Dropdown(
+                                id="fct-radar-ticker2",
+                                options=[],
+                                placeholder="Search ticker…",
+                                searchable=True, clearable=True,
+                                style={"width": "160px", "fontSize": "13px"},
+                            ),
+                        ],
+                        style={"display": "none"},
+                    ),
+                ], style={"display": "flex", "gap": "28px", "alignItems": "flex-end",
+                          "flexWrap": "wrap", "marginBottom": "12px"}),
+
+                dcc.Interval(id="fct-radar-interval", interval=600, disabled=True),
+
+                # Date slider + Play button
+                html.Div([
+                    html.Label("Snapshot date",
+                               style={"fontWeight": "bold", "display": "block", "marginBottom": "4px"}),
+                    html.Div([
+                        html.Button(
+                            "▶", id="fct-radar-play-btn",
+                            style={"width": "36px", "height": "36px", "borderRadius": "50%",
+                                   "border": "none", "backgroundColor": "#e6f1fb",
+                                   "color": "#185FA5", "fontSize": "14px",
+                                   "cursor": "pointer", "flexShrink": "0"},
+                        ),
+                        html.Div(
+                            dcc.Slider(
+                                id="fct-radar-slider",
+                                min=0, max=len(self._avail_dates) - 1, step=1,
+                                value=len(self._avail_dates) - 1,
+                                marks=_make_radar_marks(self._avail_dates),
+                                tooltip={"always_visible": False, "placement": "bottom"},
+                            ),
+                            style={"flex": "1"},
+                        ),
+                        html.Div(
+                            id="fct-radar-date-label",
+                            children=self._avail_dates[-1].strftime("%b %Y") if self._avail_dates else "",
+                            style={"fontSize": "13px", "fontWeight": "bold",
+                                   "minWidth": "80px", "textAlign": "right", "flexShrink": "0"},
+                        ),
+                    ], style={"display": "flex", "alignItems": "center", "gap": "12px"}),
+                ], style={"marginBottom": "12px"}),
+
+                dcc.Graph(id="fct-radar-chart",
+                          config={"displayModeBar": False},
+                          style={"height": "607px", "marginBottom": "12px"}),
+
+                html.Div(id="fct-radar-breakdown",
+                         style={"marginBottom": "36px", "overflowX": "auto"}),
+
+                # ================================================
+                # E — Stock Picker
+                # ================================================
+                html.H4("F — Stock Picker", style={"marginBottom": "8px"}),
                 html.P(
                     "All stocks ranked by factor score. "
                     "Format: z-score (raw value [unit]). "
@@ -963,7 +1274,7 @@ class FactorDashboardTab:
 
         return [
             html.Hr(style={"borderColor": "#ddd", "marginBottom": "28px"}),
-            html.H4("E — Factor Performance by Regime",
+            html.H4("B — Factor Performance by Regime",
                     style={"marginBottom": "8px"}),
             html.P(
                 "Factor and benchmark returns conditional on the 4 extreme market regimes "
@@ -1033,9 +1344,10 @@ class FactorDashboardTab:
         _regime_series = self.regime_engine.regime_series if self.regime_engine else None
 
         @app.callback(
-            Output("fct-cumret-chart", "figure"),
-            Output("fct-rolling-chart", "figure"),
-            Output("fct-perf-table",    "children"),
+            Output("fct-cumret-chart",       "figure"),
+            Output("fct-rolling-chart",      "figure"),
+            Output("fct-perf-table",         "children"),
+            Output("fct-perf-numeric-store", "data"),
             Input("fct-mode",           "value"),
             Input("fct-start-date",     "date"),
             Input("fct-ir-bm",          "value"),
@@ -1062,11 +1374,59 @@ class FactorDashboardTab:
                 mode, start_date, ir_benchmark=ir_bm or "ew"
             )
 
+            perf_store = perf.reset_index().to_json(orient="records")
+
             return (
                 build_cumret_figure(cumret, mode, regime_series=_regime_series),
                 build_rolling_figure(rolling, mode, window, roll_metric, regime_series=_regime_series),
                 build_perf_datatable(perf),
+                perf_store,
             )
+
+        # ---- A: highlight best row in perf table on sort ----
+        _LABEL_TO_METRIC = {v: k for k, v in _PERF_METRIC_LABELS.items()}
+        _LOWER_IS_BETTER = {"ann_vol"}
+
+        @app.callback(
+            Output("fct-perf-datatable", "style_data_conditional"),
+            Input("fct-perf-datatable",  "sort_by"),
+            State("fct-perf-numeric-store", "data"),
+            prevent_initial_call=True,
+        )
+        def highlight_best_row(sort_by, store_json):
+            base = [
+                {"if": {"filter_query": '{Strategy} contains "benchmark"'},
+                 "backgroundColor": "#f5f5f5", "fontStyle": "italic"},
+            ]
+            if not sort_by or not store_json:
+                return base
+
+            sorted_col_label = sort_by[0]["column_id"]
+            metric_key = _LABEL_TO_METRIC.get(sorted_col_label)
+            if metric_key is None:
+                return base
+
+            try:
+                records = pd.read_json(store_json, orient="records")
+            except Exception:
+                return base
+
+            if metric_key not in records.columns:
+                return base
+
+            col_vals = pd.to_numeric(records[metric_key], errors="coerce")
+            if col_vals.isna().all():
+                return base
+
+            best_idx = col_vals.idxmin() if metric_key in _LOWER_IS_BETTER else col_vals.idxmax()
+
+            strategy_col = records.columns[0]
+            best_strategy = str(records.loc[best_idx, strategy_col])
+
+            return base + [
+                {"if": {"filter_query": f'{{{strategy_col}}} = "{best_strategy}"'},
+                 "backgroundColor": "#d4f5d4", "fontWeight": "bold"},
+            ]
 
         # ---- A: annual bar chart ----
         @app.callback(
@@ -1158,6 +1518,143 @@ class FactorDashboardTab:
             date = self._date_from_slider(idx, gran or "monthly")
             ranked = engine.get_ranked_stocks(factor, date)
             return build_stock_table(ranked, factor), date.strftime("%b %Y")
+
+        # ── Section B — Factor Profile radar ─────────────────────────────────
+
+        @app.callback(
+            Output("fct-radar-breakdown", "children"),
+            Input("fct-radar-slider",     "value"),
+            Input("fct-radar-ticker1",    "value"),
+        )
+        def update_radar_breakdown(slider_idx, ticker1):
+            if not ticker1:
+                return html.P("Select a ticker to see factor breakdown.",
+                              style={"color": "#999", "fontSize": "13px"})
+            date = self._avail_dates[int(slider_idx)]
+            df   = engine.factor_scores_by_month.get(date, pd.DataFrame())
+            if df.empty:
+                return html.P("No data.", style={"color": "#999"})
+            rows = df[df["ticker"] == ticker1]
+            if rows.empty:
+                return html.P("Ticker not found at this date.", style={"color": "#999"})
+            row = rows.iloc[0]
+
+            factors = _RADAR_FACTORS
+            # correction perf : précalcul des 2 ranks en une passe
+            pct_ranks  = df[factors].rank(pct=True) * 100
+            desc_ranks = df[factors].rank(ascending=False)
+
+            _cell = {"padding": "5px 12px", "fontSize": "13px",
+                     "borderBottom": "1px solid #f0f0f0", "textAlign": "right"}
+            _lbl  = {**_cell, "textAlign": "left", "color": "#888", "fontWeight": "bold"}
+            _hdr  = {**_cell, "backgroundColor": "#f5f5f5", "fontWeight": "bold"}
+
+            header = html.Tr([
+                html.Th("", style={**_lbl, "backgroundColor": "#f5f5f5"}),
+                *[html.Th(_FACTOR_LABELS[f], style=_hdr) for f in factors],
+            ])
+
+            z_cells, pct_cells, rank_cells = [], [], []
+            for f in factors:
+                z_val = row[f]
+                if pd.isna(z_val):
+                    z_cells.append(html.Td("n/a", style=_cell))
+                    pct_cells.append(html.Td("n/a", style={**_cell, "fontWeight": "bold"}))
+                    rank_cells.append(html.Td("n/a", style={**_cell, "color": "#bbb"}))
+                else:
+                    pct_val  = int(round(pct_ranks.loc[row.name, f]))
+                    rank_val = int(desc_ranks.loc[row.name, f])
+                    n_val    = int(df[f].dropna().shape[0])
+                    sign     = "+" if float(z_val) >= 0 else ""
+                    z_cells.append(html.Td(f"{sign}{float(z_val):.2f}", style=_cell))
+                    pct_cells.append(html.Td(str(pct_val),
+                                             style={**_cell, "fontWeight": "bold", "color": "#111"}))
+                    rank_cells.append(html.Td(f"{rank_val} / {n_val}",
+                                              style={**_cell, "color": "#bbb"}))
+
+            return html.Table(
+                [
+                    html.Thead(header),
+                    html.Tbody([
+                        html.Tr([html.Td("Z-score",    style=_lbl), *z_cells]),
+                        html.Tr([html.Td("Percentile", style=_lbl), *pct_cells]),
+                        html.Tr([html.Td("Rank",       style=_lbl), *rank_cells]),
+                    ]),
+                ],
+                style={"width": "100%", "borderCollapse": "collapse",
+                       "border": "1px solid #e8e8e8"},
+            )
+
+        @app.callback(
+            Output("fct-radar-interval", "disabled"),
+            Output("fct-radar-play-btn", "children"),
+            Input("fct-radar-play-btn",  "n_clicks"),
+            State("fct-radar-interval",  "disabled"),
+            prevent_initial_call=True,
+        )
+        def toggle_radar_play(n_clicks, is_disabled):
+            if is_disabled:
+                return False, "⏸"
+            return True, "▶"
+
+        @app.callback(
+            Output("fct-radar-slider",   "value"),
+            Output("fct-radar-interval", "disabled",  allow_duplicate=True),
+            Output("fct-radar-play-btn", "children",  allow_duplicate=True),
+            Input("fct-radar-interval",  "n_intervals"),
+            State("fct-radar-slider",    "value"),
+            State("fct-radar-slider",    "max"),
+            prevent_initial_call=True,
+        )
+        def advance_radar_slider(n_intervals, current, max_val):
+            nxt = int(current) + 1
+            if nxt >= int(max_val):
+                return int(max_val), True, "▶"
+            return nxt, no_update, no_update
+
+        @app.callback(
+            Output("fct-radar-ticker1",    "options"),
+            Output("fct-radar-ticker1",    "value"),
+            Output("fct-radar-ticker2",    "options"),
+            Output("fct-radar-ticker2",    "value"),
+            Output("fct-radar-date-label", "children"),
+            Input("fct-radar-slider",      "value"),
+            State("fct-radar-ticker1",     "value"),   # correction #2 : persistance
+            State("fct-radar-ticker2",     "value"),
+        )
+        def update_radar_tickers(slider_idx, current_t1, current_t2):
+            date = self._avail_dates[int(slider_idx)]
+            df   = engine.factor_scores_by_month.get(date, pd.DataFrame())
+            tickers = sorted(df["ticker"].dropna().unique().tolist()) if not df.empty else []
+            opts    = [{"label": t, "value": t} for t in tickers]
+            ticker_set = set(tickers)
+
+            # correction #2 : garder la sélection courante si toujours disponible
+            new_t1 = current_t1 if current_t1 in ticker_set else (tickers[0] if tickers else None)
+            new_t2 = current_t2 if current_t2 in ticker_set else None
+
+            return opts, new_t1, opts, new_t2, date.strftime("%b %Y")
+
+        @app.callback(
+            Output("fct-radar-ticker2-container", "style"),
+            Input("fct-radar-mode", "value"),
+        )
+        def toggle_radar_ticker2(mode):
+            if mode == "vs_ticker":
+                return {"display": "block"}
+            return {"display": "none"}
+
+        @app.callback(
+            Output("fct-radar-chart",  "figure"),
+            Input("fct-radar-slider",  "value"),
+            Input("fct-radar-mode",    "value"),
+            Input("fct-radar-ticker1", "value"),
+            Input("fct-radar-ticker2", "value"),
+        )
+        def update_radar_chart(slider_idx, mode, ticker1, ticker2):
+            date = self._avail_dates[int(slider_idx)]
+            df   = engine.factor_scores_by_month.get(date, pd.DataFrame())
+            return build_radar_figure(df, ticker1, mode or "single", ticker2)
 
         # ── Section E callbacks (only if regime_engine is wired up) ──────────
         if self.regime_engine is None:

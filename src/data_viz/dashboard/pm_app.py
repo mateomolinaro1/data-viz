@@ -671,7 +671,7 @@ def _build_network_tab_content(
 
 
 def build_dynamic_network_app(data_manager: DataManager, configu: Config) -> Dash:
-    appli = Dash(__name__)
+    appli = Dash(__name__, suppress_callback_exceptions=True)
     builder = NetworkBuilder(config=configu)
 
     if data_manager.dates is None or len(data_manager.dates) == 0:
@@ -1023,7 +1023,7 @@ def build_dynamic_network_app(data_manager: DataManager, configu: Config) -> Das
 
 
 if __name__ == "__main__":
-    load_dotenv()
+    load_dotenv(override=True)
     logging.basicConfig(
         level=logging.INFO,
         stream=sys.stdout,
