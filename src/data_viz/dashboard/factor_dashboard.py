@@ -569,7 +569,7 @@ def build_radar_figure(
         legend=dict(orientation="h", yanchor="bottom", y=-0.08,
                     xanchor="center", x=0.5),
         margin=dict(l=60, r=60, t=40, b=80),
-        height=420,
+        height=607,
         paper_bgcolor="white",
     )
     return fig
@@ -944,15 +944,167 @@ class FactorDashboardTab:
                           config={"displayModeBar": False},
                           style={"height": "380px", "marginBottom": "16px"}),
 
-                # Section E — Factor Performance by Regime (inline in A)
+                # Section B — Factor Performance by Regime
                 *(self._build_regime_section() if self.regime_engine is not None else []),
 
                 html.Div(style={"marginBottom": "20px"}),
 
                 # ================================================
-                # B — Factor Profile — Cross-sectional View
+                # B — Factor Heatmaps
                 # ================================================
-                html.H4("B — Factor Profile — Cross-sectional View",
+                html.H4("C — Factor Heatmaps", style={"marginBottom": "8px"}),
+
+                html.Div([
+                    html.Div([
+                        html.Label("Mode", style={"fontWeight": "bold", "display": "block", "marginBottom": "4px"}),
+                        dcc.RadioItems(
+                            id="fct-hm-mode",
+                            options=[{"label": "LO", "value": "lo"}, {"label": "L/S", "value": "ls"}],
+                            value="ls", inline=True,
+                            inputStyle={"marginRight": "4px"},
+                            labelStyle={"marginRight": "12px", "fontSize": "13px"},
+                        ),
+                    ]),
+                    html.Div([
+                        html.Label("Metric", style={"fontWeight": "bold", "display": "block", "marginBottom": "4px"}),
+                        dcc.RadioItems(
+                            id="fct-hm-metric",
+                            options=[
+                                {"label": "Return (raw)",      "value": "return"},
+                                {"label": "Return (rolling)",  "value": "roll_return"},
+                                {"label": "Vol (raw)",         "value": "vol_raw"},
+                                {"label": "Vol (rolling)",     "value": "vol"},
+                                {"label": "Sharpe (raw)",      "value": "sharpe_raw"},
+                                {"label": "Sharpe (rolling)",  "value": "sharpe"},
+                            ],
+                            value="return", inline=True,
+                            inputStyle={"marginRight": "4px"},
+                            labelStyle={"marginRight": "14px", "fontSize": "13px"},
+                        ),
+                    ]),
+                    html.Div([
+                        html.Label("Granularity", style={"fontWeight": "bold", "display": "block", "marginBottom": "4px"}),
+                        dcc.RadioItems(
+                            id="fct-hm-gran",
+                            options=[{"label": "Monthly", "value": "monthly"}, {"label": "Yearly", "value": "yearly"}],
+                            value="monthly", inline=True,
+                            inputStyle={"marginRight": "4px"},
+                            labelStyle={"marginRight": "16px", "fontSize": "13px"},
+                        ),
+                    ]),
+                    html.Div([
+                        html.Label("Sort factors", style={"fontWeight": "bold", "display": "block", "marginBottom": "4px"}),
+                        dcc.Dropdown(
+                            id="fct-hm-sort",
+                            options=[
+                                {"label": "Alphabetical",   "value": "alpha"},
+                                {"label": "Avg value (↓)",  "value": "avg"},
+                            ],
+                            value="alpha", clearable=False,
+                            style={"width": "160px", "fontSize": "13px"},
+                        ),
+                    ]),
+                    html.Div([
+                        html.Label("Rolling window (vol/Sharpe)",
+                                   style={"fontWeight": "bold", "display": "block", "marginBottom": "4px"}),
+                        dcc.RadioItems(
+                            id="fct-hm-window",
+                            options=[{"label": "6M", "value": "6"}, {"label": "12M", "value": "12"},
+                                     {"label": "24M", "value": "24"}],
+                            value="12", inline=True,
+                            inputStyle={"marginRight": "4px"},
+                            labelStyle={"marginRight": "12px", "fontSize": "13px"},
+                        ),
+                    ]),
+                ], style={"display": "flex", "gap": "28px", "alignItems": "flex-end",
+                          "flexWrap": "wrap", "marginBottom": "12px"}),
+
+                dcc.Graph(id="fct-factor-heatmap",
+                          config={"displayModeBar": False},
+                          style={"height": "280px", "marginBottom": "36px"}),
+
+                # ================================================
+                # C — Factor–Sector Scores
+                # ================================================
+                html.H4("D — Factor–Sector Scores", style={"marginBottom": "8px"}),
+                html.P(
+                    "Average factor z-score per GICS sector at the selected date.",
+                    style={"color": "#666", "fontSize": "13px", "marginBottom": "8px"},
+                ),
+
+                html.Div([
+                    html.Div([
+                        html.Label("Granularity", style={"fontWeight": "bold", "display": "block", "marginBottom": "4px"}),
+                        dcc.RadioItems(
+                            id="fct-exp-gran",
+                            options=[
+                                {"label": "Daily",   "value": "daily"},
+                                {"label": "Weekly",  "value": "weekly"},
+                                {"label": "Monthly", "value": "monthly"},
+                                {"label": "Yearly",  "value": "yearly"},
+                            ],
+                            value="monthly", inline=True,
+                            inputStyle={"marginRight": "4px"},
+                            labelStyle={"marginRight": "14px", "fontSize": "13px"},
+                        ),
+                    ]),
+                    html.Div([
+                        html.Label("Sort sectors", style={"fontWeight": "bold", "display": "block", "marginBottom": "4px"}),
+                        dcc.Dropdown(
+                            id="fct-exp-sort-sectors",
+                            options=[
+                                {"label": "Alphabetical", "value": "alpha"},
+                                {"label": "Avg score (↓)", "value": "avg_score"},
+                            ],
+                            value="alpha", clearable=False,
+                            style={"width": "160px", "fontSize": "13px"},
+                        ),
+                    ]),
+                    html.Div([
+                        html.Label("Sort factors", style={"fontWeight": "bold", "display": "block", "marginBottom": "4px"}),
+                        dcc.Dropdown(
+                            id="fct-exp-sort-factors",
+                            options=[
+                                {"label": "Alphabetical", "value": "alpha"},
+                                {"label": "Avg score (↓)", "value": "avg_score"},
+                            ],
+                            value="alpha", clearable=False,
+                            style={"width": "160px", "fontSize": "13px"},
+                        ),
+                    ]),
+                ], style={"display": "flex", "gap": "28px", "alignItems": "flex-end",
+                          "flexWrap": "wrap", "marginBottom": "8px"}),
+
+                html.Div([
+                    html.Label("Snapshot date",
+                               style={"fontWeight": "bold", "display": "block", "marginBottom": "4px"}),
+                    html.Div([
+                        html.Div(
+                            dcc.Slider(
+                                id="fct-exp-slider",
+                                min=0, max=n_m - 1, step=1, value=last_m,
+                                marks=marks_m,
+                                tooltip={"always_visible": False, "placement": "bottom"},
+                            ),
+                            style={"flex": "1"},
+                        ),
+                        html.Div(
+                            id="fct-exp-date-label",
+                            children=dates_m[-1].strftime("%b %Y") if dates_m else "",
+                            style={"fontSize": "13px", "fontWeight": "bold",
+                                   "minWidth": "80px", "textAlign": "right", "flexShrink": "0"},
+                        ),
+                    ], style={"display": "flex", "alignItems": "center", "gap": "12px"}),
+                ], style={"marginBottom": "12px"}),
+
+                dcc.Graph(id="fct-sector-scores",
+                          config={"displayModeBar": False},
+                          style={"height": "380px", "marginBottom": "36px"}),
+
+                # ================================================
+                # D — Factor Profile — Cross-sectional View
+                # ================================================
+                html.H4("E — Factor Profile — Cross-sectional View",
                         style={"marginBottom": "8px"}),
                 html.P(
                     "Percentile rank (0–100) cross-sectional on the universe at the selected date. "
@@ -1038,167 +1190,15 @@ class FactorDashboardTab:
 
                 dcc.Graph(id="fct-radar-chart",
                           config={"displayModeBar": False},
-                          style={"height": "420px", "marginBottom": "12px"}),
+                          style={"height": "607px", "marginBottom": "12px"}),
 
                 html.Div(id="fct-radar-breakdown",
                          style={"marginBottom": "36px", "overflowX": "auto"}),
 
                 # ================================================
-                # C — Factor Heatmaps
-                # ================================================
-                html.H4("C — Factor Heatmaps", style={"marginBottom": "8px"}),
-
-                html.Div([
-                    html.Div([
-                        html.Label("Mode", style={"fontWeight": "bold", "display": "block", "marginBottom": "4px"}),
-                        dcc.RadioItems(
-                            id="fct-hm-mode",
-                            options=[{"label": "LO", "value": "lo"}, {"label": "L/S", "value": "ls"}],
-                            value="ls", inline=True,
-                            inputStyle={"marginRight": "4px"},
-                            labelStyle={"marginRight": "12px", "fontSize": "13px"},
-                        ),
-                    ]),
-                    html.Div([
-                        html.Label("Metric", style={"fontWeight": "bold", "display": "block", "marginBottom": "4px"}),
-                        dcc.RadioItems(
-                            id="fct-hm-metric",
-                            options=[
-                                {"label": "Return (raw)",      "value": "return"},
-                                {"label": "Return (rolling)",  "value": "roll_return"},
-                                {"label": "Vol (raw)",         "value": "vol_raw"},
-                                {"label": "Vol (rolling)",     "value": "vol"},
-                                {"label": "Sharpe (raw)",      "value": "sharpe_raw"},
-                                {"label": "Sharpe (rolling)",  "value": "sharpe"},
-                            ],
-                            value="return", inline=True,
-                            inputStyle={"marginRight": "4px"},
-                            labelStyle={"marginRight": "14px", "fontSize": "13px"},
-                        ),
-                    ]),
-                    html.Div([
-                        html.Label("Granularity", style={"fontWeight": "bold", "display": "block", "marginBottom": "4px"}),
-                        dcc.RadioItems(
-                            id="fct-hm-gran",
-                            options=[{"label": "Monthly", "value": "monthly"}, {"label": "Yearly", "value": "yearly"}],
-                            value="monthly", inline=True,
-                            inputStyle={"marginRight": "4px"},
-                            labelStyle={"marginRight": "16px", "fontSize": "13px"},
-                        ),
-                    ]),
-                    html.Div([
-                        html.Label("Sort factors", style={"fontWeight": "bold", "display": "block", "marginBottom": "4px"}),
-                        dcc.Dropdown(
-                            id="fct-hm-sort",
-                            options=[
-                                {"label": "Alphabetical",   "value": "alpha"},
-                                {"label": "Avg value (↓)",  "value": "avg"},
-                            ],
-                            value="alpha", clearable=False,
-                            style={"width": "160px", "fontSize": "13px"},
-                        ),
-                    ]),
-                    html.Div([
-                        html.Label("Rolling window (vol/Sharpe)",
-                                   style={"fontWeight": "bold", "display": "block", "marginBottom": "4px"}),
-                        dcc.RadioItems(
-                            id="fct-hm-window",
-                            options=[{"label": "6M", "value": "6"}, {"label": "12M", "value": "12"},
-                                     {"label": "24M", "value": "24"}],
-                            value="12", inline=True,
-                            inputStyle={"marginRight": "4px"},
-                            labelStyle={"marginRight": "12px", "fontSize": "13px"},
-                        ),
-                    ]),
-                ], style={"display": "flex", "gap": "28px", "alignItems": "flex-end",
-                          "flexWrap": "wrap", "marginBottom": "12px"}),
-
-                dcc.Graph(id="fct-factor-heatmap",
-                          config={"displayModeBar": False},
-                          style={"height": "280px", "marginBottom": "36px"}),
-
-                # ================================================
-                # D — Factor–Sector Scores
-                # ================================================
-                html.H4("D — Factor–Sector Scores", style={"marginBottom": "8px"}),
-                html.P(
-                    "Average factor z-score per GICS sector at the selected date.",
-                    style={"color": "#666", "fontSize": "13px", "marginBottom": "8px"},
-                ),
-
-                html.Div([
-                    html.Div([
-                        html.Label("Granularity", style={"fontWeight": "bold", "display": "block", "marginBottom": "4px"}),
-                        dcc.RadioItems(
-                            id="fct-exp-gran",
-                            options=[
-                                {"label": "Daily",   "value": "daily"},
-                                {"label": "Weekly",  "value": "weekly"},
-                                {"label": "Monthly", "value": "monthly"},
-                                {"label": "Yearly",  "value": "yearly"},
-                            ],
-                            value="monthly", inline=True,
-                            inputStyle={"marginRight": "4px"},
-                            labelStyle={"marginRight": "14px", "fontSize": "13px"},
-                        ),
-                    ]),
-                    html.Div([
-                        html.Label("Sort sectors", style={"fontWeight": "bold", "display": "block", "marginBottom": "4px"}),
-                        dcc.Dropdown(
-                            id="fct-exp-sort-sectors",
-                            options=[
-                                {"label": "Alphabetical", "value": "alpha"},
-                                {"label": "Avg score (↓)", "value": "avg_score"},
-                            ],
-                            value="alpha", clearable=False,
-                            style={"width": "160px", "fontSize": "13px"},
-                        ),
-                    ]),
-                    html.Div([
-                        html.Label("Sort factors", style={"fontWeight": "bold", "display": "block", "marginBottom": "4px"}),
-                        dcc.Dropdown(
-                            id="fct-exp-sort-factors",
-                            options=[
-                                {"label": "Alphabetical", "value": "alpha"},
-                                {"label": "Avg score (↓)", "value": "avg_score"},
-                            ],
-                            value="alpha", clearable=False,
-                            style={"width": "160px", "fontSize": "13px"},
-                        ),
-                    ]),
-                ], style={"display": "flex", "gap": "28px", "alignItems": "flex-end",
-                          "flexWrap": "wrap", "marginBottom": "8px"}),
-
-                html.Div([
-                    html.Label("Snapshot date",
-                               style={"fontWeight": "bold", "display": "block", "marginBottom": "4px"}),
-                    html.Div([
-                        html.Div(
-                            dcc.Slider(
-                                id="fct-exp-slider",
-                                min=0, max=n_m - 1, step=1, value=last_m,
-                                marks=marks_m,
-                                tooltip={"always_visible": False, "placement": "bottom"},
-                            ),
-                            style={"flex": "1"},
-                        ),
-                        html.Div(
-                            id="fct-exp-date-label",
-                            children=dates_m[-1].strftime("%b %Y") if dates_m else "",
-                            style={"fontSize": "13px", "fontWeight": "bold",
-                                   "minWidth": "80px", "textAlign": "right", "flexShrink": "0"},
-                        ),
-                    ], style={"display": "flex", "alignItems": "center", "gap": "12px"}),
-                ], style={"marginBottom": "12px"}),
-
-                dcc.Graph(id="fct-sector-scores",
-                          config={"displayModeBar": False},
-                          style={"height": "380px", "marginBottom": "36px"}),
-
-                # ================================================
                 # E — Stock Picker
                 # ================================================
-                html.H4("E — Stock Picker", style={"marginBottom": "8px"}),
+                html.H4("F — Stock Picker", style={"marginBottom": "8px"}),
                 html.P(
                     "All stocks ranked by factor score. "
                     "Format: z-score (raw value [unit]). "
@@ -1274,7 +1274,7 @@ class FactorDashboardTab:
 
         return [
             html.Hr(style={"borderColor": "#ddd", "marginBottom": "28px"}),
-            html.H4("E — Factor Performance by Regime",
+            html.H4("B — Factor Performance by Regime",
                     style={"marginBottom": "8px"}),
             html.P(
                 "Factor and benchmark returns conditional on the 4 extreme market regimes "
