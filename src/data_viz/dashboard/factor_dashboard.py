@@ -454,15 +454,18 @@ def build_radar_figure(
     if row1.empty:
         return fig
 
+    nan_idx1: set[int] = set()
     missing1: list[str] = []
     vals1: list[float] = []
-    for f in factors:
+    for i, f in enumerate(factors):
         v = row1[f].iloc[0]
         if pd.isna(v):
+            nan_idx1.add(i)
             missing1.append(_FACTOR_LABELS[f])
-            vals1.append(50.0)   # correction #1 : neutre plutôt que 0
+            vals1.append(50.0)
         else:
             vals1.append(float(v))
+    text1 = ["n/a" if i in nan_idx1 else str(int(round(vals1[i]))) for i in range(len(factors))]
 
     fig.add_trace(go.Scatterpolar(
         r=vals1,
@@ -471,6 +474,10 @@ def build_radar_figure(
         fillcolor="rgba(76,114,176,0.25)",
         line=dict(color=_RADAR_COLORS["ticker1"], width=2.5),
         name=ticker1,
+        mode="lines+markers+text",
+        text=text1,
+        textposition="top center",
+        textfont=dict(size=11, color=_RADAR_COLORS["ticker1"]),
     ))
 
     # ── Mode vs_sector ───────────────────────────────────────────────
@@ -480,10 +487,16 @@ def build_radar_figure(
             sector = sector_ser.iloc[0]
             mask = pct["gics_sector"] == sector
             sector_med = pct.loc[mask, factors].median()
-            sector_vals = [
-                float(sector_med[f]) if pd.notna(sector_med[f]) else 50.0
-                for f in factors
-            ]
+            nan_idx_s: set[int] = set()
+            sector_vals: list[float] = []
+            for i, f in enumerate(factors):
+                v = sector_med[f]
+                if pd.isna(v):
+                    nan_idx_s.add(i)
+                    sector_vals.append(50.0)
+                else:
+                    sector_vals.append(float(v))
+            text_s = ["n/a" if i in nan_idx_s else str(int(round(sector_vals[i]))) for i in range(len(factors))]
             fig.add_trace(go.Scatterpolar(
                 r=sector_vals,
                 theta=theta_lbl,
@@ -491,21 +504,28 @@ def build_radar_figure(
                 fillcolor="rgba(85,168,104,0.15)",
                 line=dict(color=_RADAR_COLORS["sector"], width=2, dash="dot"),
                 name=f"{sector} median",
+                mode="lines+markers+text",
+                text=text_s,
+                textposition="top center",
+                textfont=dict(size=11, color=_RADAR_COLORS["sector"]),
             ))
 
     # ── Mode vs_ticker ───────────────────────────────────────────────
     elif mode == "vs_ticker" and ticker2:
         row2 = pct.loc[pct["ticker"] == ticker2]
         if not row2.empty:
+            nan_idx2: set[int] = set()
             missing2: list[str] = []
             vals2: list[float] = []
-            for f in factors:
+            for i, f in enumerate(factors):
                 v = row2[f].iloc[0]
                 if pd.isna(v):
+                    nan_idx2.add(i)
                     missing2.append(_FACTOR_LABELS[f])
-                    vals2.append(50.0)   # correction #1
+                    vals2.append(50.0)
                 else:
                     vals2.append(float(v))
+            text2 = ["n/a" if i in nan_idx2 else str(int(round(vals2[i]))) for i in range(len(factors))]
             fig.add_trace(go.Scatterpolar(
                 r=vals2,
                 theta=theta_lbl,
@@ -513,6 +533,10 @@ def build_radar_figure(
                 fillcolor="rgba(196,78,82,0.20)",
                 line=dict(color=_RADAR_COLORS["ticker2"], width=2.5),
                 name=ticker2,
+                mode="lines+markers+text",
+                text=text2,
+                textposition="top center",
+                textfont=dict(size=11, color=_RADAR_COLORS["ticker2"]),
             ))
             if missing2:
                 fig.add_annotation(
@@ -979,11 +1003,20 @@ class FactorDashboardTab:
                 ], style={"display": "flex", "gap": "28px", "alignItems": "flex-end",
                           "flexWrap": "wrap", "marginBottom": "12px"}),
 
-                # Date slider
+                dcc.Interval(id="fct-radar-interval", interval=600, disabled=True),
+
+                # Date slider + Play button
                 html.Div([
                     html.Label("Snapshot date",
                                style={"fontWeight": "bold", "display": "block", "marginBottom": "4px"}),
                     html.Div([
+                        html.Button(
+                            "▶", id="fct-radar-play-btn",
+                            style={"width": "36px", "height": "36px", "borderRadius": "50%",
+                                   "border": "none", "backgroundColor": "#e6f1fb",
+                                   "color": "#185FA5", "fontSize": "14px",
+                                   "cursor": "pointer", "flexShrink": "0"},
+                        ),
                         html.Div(
                             dcc.Slider(
                                 id="fct-radar-slider",
@@ -1005,7 +1038,10 @@ class FactorDashboardTab:
 
                 dcc.Graph(id="fct-radar-chart",
                           config={"displayModeBar": False},
-                          style={"height": "420px", "marginBottom": "36px"}),
+                          style={"height": "420px", "marginBottom": "12px"}),
+
+                html.Div(id="fct-radar-breakdown",
+                         style={"marginBottom": "36px", "overflowX": "auto"}),
 
                 # ================================================
                 # C — Factor Heatmaps
@@ -1484,6 +1520,97 @@ class FactorDashboardTab:
             return build_stock_table(ranked, factor), date.strftime("%b %Y")
 
         # ── Section B — Factor Profile radar ─────────────────────────────────
+
+        @app.callback(
+            Output("fct-radar-breakdown", "children"),
+            Input("fct-radar-slider",     "value"),
+            Input("fct-radar-ticker1",    "value"),
+        )
+        def update_radar_breakdown(slider_idx, ticker1):
+            if not ticker1:
+                return html.P("Select a ticker to see factor breakdown.",
+                              style={"color": "#999", "fontSize": "13px"})
+            date = self._avail_dates[int(slider_idx)]
+            df   = engine.factor_scores_by_month.get(date, pd.DataFrame())
+            if df.empty:
+                return html.P("No data.", style={"color": "#999"})
+            rows = df[df["ticker"] == ticker1]
+            if rows.empty:
+                return html.P("Ticker not found at this date.", style={"color": "#999"})
+            row = rows.iloc[0]
+
+            factors = _RADAR_FACTORS
+            # correction perf : précalcul des 2 ranks en une passe
+            pct_ranks  = df[factors].rank(pct=True) * 100
+            desc_ranks = df[factors].rank(ascending=False)
+
+            _cell = {"padding": "5px 12px", "fontSize": "13px",
+                     "borderBottom": "1px solid #f0f0f0", "textAlign": "right"}
+            _lbl  = {**_cell, "textAlign": "left", "color": "#888", "fontWeight": "bold"}
+            _hdr  = {**_cell, "backgroundColor": "#f5f5f5", "fontWeight": "bold"}
+
+            header = html.Tr([
+                html.Th("", style={**_lbl, "backgroundColor": "#f5f5f5"}),
+                *[html.Th(_FACTOR_LABELS[f], style=_hdr) for f in factors],
+            ])
+
+            z_cells, pct_cells, rank_cells = [], [], []
+            for f in factors:
+                z_val = row[f]
+                if pd.isna(z_val):
+                    z_cells.append(html.Td("n/a", style=_cell))
+                    pct_cells.append(html.Td("n/a", style={**_cell, "fontWeight": "bold"}))
+                    rank_cells.append(html.Td("n/a", style={**_cell, "color": "#bbb"}))
+                else:
+                    pct_val  = int(round(pct_ranks.loc[row.name, f]))
+                    rank_val = int(desc_ranks.loc[row.name, f])
+                    n_val    = int(df[f].dropna().shape[0])
+                    sign     = "+" if float(z_val) >= 0 else ""
+                    z_cells.append(html.Td(f"{sign}{float(z_val):.2f}", style=_cell))
+                    pct_cells.append(html.Td(str(pct_val),
+                                             style={**_cell, "fontWeight": "bold", "color": "#111"}))
+                    rank_cells.append(html.Td(f"{rank_val} / {n_val}",
+                                              style={**_cell, "color": "#bbb"}))
+
+            return html.Table(
+                [
+                    html.Thead(header),
+                    html.Tbody([
+                        html.Tr([html.Td("Z-score",    style=_lbl), *z_cells]),
+                        html.Tr([html.Td("Percentile", style=_lbl), *pct_cells]),
+                        html.Tr([html.Td("Rank",       style=_lbl), *rank_cells]),
+                    ]),
+                ],
+                style={"width": "100%", "borderCollapse": "collapse",
+                       "border": "1px solid #e8e8e8"},
+            )
+
+        @app.callback(
+            Output("fct-radar-interval", "disabled"),
+            Output("fct-radar-play-btn", "children"),
+            Input("fct-radar-play-btn",  "n_clicks"),
+            State("fct-radar-interval",  "disabled"),
+            prevent_initial_call=True,
+        )
+        def toggle_radar_play(n_clicks, is_disabled):
+            if is_disabled:
+                return False, "⏸"
+            return True, "▶"
+
+        @app.callback(
+            Output("fct-radar-slider",   "value"),
+            Output("fct-radar-interval", "disabled",  allow_duplicate=True),
+            Output("fct-radar-play-btn", "children",  allow_duplicate=True),
+            Input("fct-radar-interval",  "n_intervals"),
+            State("fct-radar-slider",    "value"),
+            State("fct-radar-slider",    "max"),
+            prevent_initial_call=True,
+        )
+        def advance_radar_slider(n_intervals, current, max_val):
+            nxt = int(current) + 1
+            if nxt >= int(max_val):
+                return int(max_val), True, "▶"
+            return nxt, no_update, no_update
 
         @app.callback(
             Output("fct-radar-ticker1",    "options"),
