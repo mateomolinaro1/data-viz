@@ -6,12 +6,14 @@ DATA_PATH = PROJECT_ROOT / "data"
 
 # At least, the query must retrieve the following columns:
 # ['ticker','exchcd','cusip','ncusip','comnam','permno','permco','namedt','nameendt','date']
-STARTING_DATE = "2020-01-01" # of the wrds query YYYY-MM-DD
+STARTING_DATE = '1970-01-01' # of the wrds query YYYY-MM-DD
+ENDING_DATE = '2019-12-31'
 
 WRDS_REQUEST = """
 SELECT *
 FROM wrdsapps_finratio.firm_ratio
 WHERE qdate >= DATE '{starting_date}'
+    AND qdate <= DATE '{ending_date}'
 ORDER BY qdate, ticker;
 """
 
