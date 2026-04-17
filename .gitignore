@@ -33,3 +33,6 @@ outputs/results/*
 outputs/figures/*
 !outputs/figures/.gitkeep
 
+outputs/reports/*
+!outputs/reports/.gitkeep
+
