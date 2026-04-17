@@ -48,3 +48,8 @@ Windows (PowerShell)
 ```env
 uv install
 ```
+
+## 7. Launch the dashboard
+```env
+uv run python src/data_viz/dashboard/pm_app.py
+```
