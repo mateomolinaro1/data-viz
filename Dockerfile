@@ -16,10 +16,9 @@ COPY src/ ./src/
 RUN uv sync --frozen --no-dev
 
 # Copy app and supporting files
-COPY app.py ./
 COPY data/ ./data/
 COPY configs/ ./configs/
 
 EXPOSE 8050
 
-CMD ["uv", "run", "python", "app.py"]
+CMD ["uv", "run", "python", "src/data_viz/dashboard/pm_app.py"]
